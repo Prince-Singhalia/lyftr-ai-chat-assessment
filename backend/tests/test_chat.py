@@ -5,7 +5,32 @@ def test_first_and_second_turn(client):
     second = client.post('/chat', json={'session_id': 's1', 'message': 'Follow up'})
     assert second.status_code == 200
     assert len(client.app.state.calls) == 2
-    assert [m['content'] for m in client.app.state.calls[-1][0]] == ['Hello', 'reply from test-one', 'Follow up']
+    messages = client.app.state.calls[-1][0]
+    assert messages[0]['role'] == 'system'
+    assert 'AI assistant powering Resilient AI Chat' in messages[0]['content']
+    assert [m['content'] for m in messages[1:]] == ['Hello', 'reply from test-one', 'Follow up']
+
+
+def test_assistant_identity_instruction_is_sent_to_provider(client):
+    response = client.post('/chat', json={'session_id': 'identity', 'message': 'Who are you?'})
+    assert response.status_code == 200
+    system_message = client.app.state.calls[0][0][0]
+    assert system_message['role'] == 'system'
+    assert 'AI assistant powering Resilient AI Chat' in system_message['content']
+    assert 'Do not identify yourself as ChatGPT' in system_message['content']
+    assert 'Do not claim a particular model' in system_message['content']
+
+
+def test_server_identity_instruction_follows_optional_system_prompt(client):
+    client.post('/chat', json={
+        'session_id': 'identity-custom',
+        'message': 'Who are you?',
+        'system_prompt': 'Be concise.',
+    })
+    system_message = client.app.state.calls[0][0][0]
+    assert system_message['role'] == 'system'
+    assert system_message['content'].startswith('Be concise.')
+    assert system_message['content'].endswith('If asked who you are, say you are the AI assistant powering Resilient AI Chat.')
 
 
 def test_sessions_are_isolated_and_history_hides_system(client):

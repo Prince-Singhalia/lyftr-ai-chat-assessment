@@ -3,7 +3,7 @@
 This walkthrough is for a deployed environment after its URLs and provider configuration have been verified. Do not display `.env`, credentials, or private account information.
 
 1. Open the public frontend. Send a short question and point out `LIVE_INFERENCE`, model, latency, and token counts.
-2. Ask a follow-up that relies on the first answer. Explain that the backend reconstructed the session history from SQLite.
+2. Ask a follow-up that relies on the first answer. Explain that the backend reconstructed session history from the configured database (Neon PostgreSQL in production; SQLite in local development).
 3. Open a fresh tab/session and repeat the first prompt. Point out `LLM_CACHE`, identical answer, preserved tokens, null key ID, and zero fallback attempts.
 4. Send a request using `X-Simulate-Failure: key_1=429`. Show the response metadata for `key_2` and one fallback attempt. The second call is real.
 5. With Groq enabled, simulate both Gemini failures using `key_1=503,key_2=503`. Show a real Groq response and its model metadata.

@@ -7,6 +7,13 @@ from ..services.llm_gateway import ProvidersUnavailable
 
 router = APIRouter()
 
+ASSISTANT_IDENTITY_INSTRUCTION = (
+    "You are the AI assistant powering Resilient AI Chat. Do not identify yourself as ChatGPT "
+    "or claim to be created or trained by OpenAI. Do not claim a particular model, company, "
+    "or provider unless the application has explicitly verified and supplied that information. "
+    "If asked who you are, say you are the AI assistant powering Resilient AI Chat."
+)
+
 
 @router.get("/health")
 def health(request: Request) -> dict:
@@ -19,9 +26,11 @@ def health(request: Request) -> dict:
 @router.post("/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest, request: Request, x_simulate_failure: str | None = Header(default=None)) -> ChatResponse:
     existing = fetch_messages(payload.session_id)
-    messages: list[dict[str, str]] = []
+    system_instructions: list[str] = []
     if payload.system_prompt:
-        messages.append({"role": "system", "content": payload.system_prompt})
+        system_instructions.append(payload.system_prompt)
+    system_instructions.append(ASSISTANT_IDENTITY_INSTRUCTION)
+    messages: list[dict[str, str]] = [{"role": "system", "content": "\n\n".join(system_instructions)}]
     messages.extend({"role": item["role"], "content": item["content"]} for item in existing)
     messages.append({"role": "user", "content": payload.message})
     started = time.perf_counter()

@@ -62,6 +62,8 @@ flowchart TD
 
 The browser creates a fresh UUID session ID when the page loads and sends only that ID, the new message, and an optional system prompt. The backend reads previous user/assistant rows oldest first and constructs the ordered message list. It does not store system prompts in the messages table.
 
+Every provider request includes a server-controlled identity instruction identifying the assistant as the one powering Resilient AI Chat. It forbids unsupported ChatGPT, company, model, or provider identity claims. The optional request `system_prompt` is retained and combined with this instruction; provider/model metadata remains in the normal response fields.
+
 The gateway splits and trims `LLM_API_KEYS`; each element is sent individually to LiteLLM. `key_1` and `key_2` are stable metadata identifiers, never key values. Groq is attempted only when both Gemini deployments fail retryably, `FALLBACK_LLM_ENABLED=true`, and `GROQ_API_KEY` is present. Retryable HTTP statuses are 408, 429, 500, 502, 503, and 504; network failures and timeouts are also retryable. Other provider errors produce the generic 503 response after Gemini attempts.
 
 `fallback_attempts` counts failed deployments before success. `model` is the model that produced the reply, including on cache hits. Provider usage fields are used when supplied; otherwise the implementation estimates from whitespace-separated text.
