@@ -7,11 +7,17 @@ __pycache__/
 .venv/
 node_modules/
 dist/
+build/
 *.tsbuildinfo
 data/
 *.db
 *.sqlite*
+*.log
+logs/
 .coverage
 coverage/
 .DS_Store
+Thumbs.db
+.idea/
+.vscode/
 

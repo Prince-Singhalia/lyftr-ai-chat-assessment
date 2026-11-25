@@ -1,5 +1,6 @@
 services:
   backend:
+    image: resilient-ai-chat-backend
     build: ./backend
     ports: ["8000:8000"]
     environment:
@@ -14,6 +15,7 @@ services:
       timeout: 5s
       retries: 3
   frontend:
+    image: resilient-ai-chat-frontend
     build:
       context: ./frontend
       args:
