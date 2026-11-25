@@ -10,7 +10,7 @@ def main() -> int:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level)
     gateway = LLMGateway(settings)
-    results = gateway.diagnose_keys(model="gemini/gemini-3.8-flash")
+    results = gateway.diagnose_keys(model=settings.llm_model)
     print(json.dumps(results, indent=2))
     return 0 if results and all(item["success"] for item in results) else 1
 

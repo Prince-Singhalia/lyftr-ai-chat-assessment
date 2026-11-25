@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatMessage } from './ChatMessage';
 import { MessageInput } from './MessageInput';
 import type { Message } from '../types/chat';
@@ -50,8 +50,16 @@ describe('assistant Markdown rendering', () => {
   });
 
   it('preserves the input and send button test ids', () => {
-    render(<MessageInput disabled={false} onSend={() => undefined} />);
+    const onSend = vi.fn();
+    render(<MessageInput disabled={false} onSend={onSend} />);
     expect(screen.getByTestId('chat-input')).toBeInTheDocument();
     expect(screen.getByTestId('send-button')).toBeInTheDocument();
+    const input = screen.getByTestId('chat-input');
+    fireEvent.change(input, { target: { value: 'Question' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+    expect(onSend).toHaveBeenCalledWith('Question');
+    expect(input).toHaveValue('');
   });
 });

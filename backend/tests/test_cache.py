@@ -14,3 +14,13 @@ def test_different_prompt_and_history_miss(client):
     client.post('/chat', json={'session_id': 'one', 'message': 'next'})
     assert len(client.app.state.calls) == 3
 
+
+def test_different_model_does_not_reuse_cached_answer(client):
+    gateway = client.app.state.gateway
+    first = client.post('/chat', json={'session_id': 'model-a', 'message': 'same prompt'})
+    gateway.settings.llm_model = 'another-model'
+    second = client.post('/chat', json={'session_id': 'model-b', 'message': 'same prompt'})
+    assert first.json()['metadata']['resolution_source'] == 'LIVE_INFERENCE'
+    assert second.json()['metadata']['resolution_source'] == 'LIVE_INFERENCE'
+    assert len(client.app.state.calls) == 2
+

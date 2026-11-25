@@ -44,16 +44,19 @@ Provider configuration: `LLM_API_KEYS` contains the ordered pair of Gemini deplo
 
 Build `backend/Dockerfile` on a platform with a persistent disk mounted at `/data`; set `DATABASE_URL=sqlite:////data/app.db`, two secret keys, the model, and exact frontend origin. Build the frontend with `VITE_API_BASE_URL` set to the backend HTTPS URL. Configure CORS to that exact frontend URL. Secrets, local databases, and cache files are ignored by Git. Public deployment and GitHub publishing remain manual because no hosting or repository credentials are available in this workspace.
 
+For Render, create a Docker Web Service from the repository root with Dockerfile `backend/Dockerfile`, Docker context `backend`, health check `/health`, and a persistent disk mounted at `/data`. Set `PORT` through the service environment if Render supplies one (the backend honors it), plus the variables listed above. For Vercel, import the same repository with root directory `frontend`, build command `npm run build`, output directory `dist`, and `VITE_API_BASE_URL` set to the Render HTTPS URL. Add the exact Vercel origin to backend `ALLOWED_ORIGINS`. Set keys only in the hosting secret settings, then deploy and verify the external health URL before sharing it.
+
 ### Known limitations
 
 The included cache service is process-local; use one backend instance for the SQLite/process-local cache design or replace it with a supported persistent LiteLLM cache only if the assessment constraints are relaxed. Provider usage is preferred; when absent, the documented whitespace-token estimate is used.
 
 ### Demo script (2–3 minutes)
 
-1. Open the deployed frontend and send a first question; point to `LIVE_INFERENCE`, model, latency, and token metadata.
-2. Ask a follow-up; explain that the backend reconstructed prior turns.
-3. Start a fresh session and send the same first question; show `LLM_CACHE`, identical reply, retained tokens, and null key ID.
-4. Use the API client with `X-Simulate-Failure: key_1=429`; show a real response from key 2 and fallback count 1.
-5. Use `X-Simulate-Failure: *=429`; show the clean 503 and verify no history was written.
-6. Open the history endpoint and show the Docker/project structure.
+1. Open the public frontend and send a real question; show `LIVE_INFERENCE` and response metadata.
+2. Ask a follow-up to demonstrate server-side multi-turn memory.
+3. Open a new tab/session and repeat the first prompt; show `LLM_CACHE` and retained token usage.
+4. With curl, send `-H 'X-Simulate-Failure: key_1=429'`; show Gemini key 2 succeeds and `fallback_attempts` is 1.
+5. With Groq configured, send `-H 'X-Simulate-Failure: key_1=503,key_2=503'`; show the Groq model in response metadata and `fallback_attempts` is 2.
+6. Send `-H 'X-Simulate-Failure: key_1=503,key_2=503,groq=503'`; show the exact 503 JSON and that history returns 404 for that session.
+7. Open the history endpoint, Docker containers/volume, and the public repository. Keep `.env` and keys off screen.
 

@@ -19,8 +19,19 @@ def test_sessions_are_isolated_and_history_hides_system(client):
 
 def test_validation(client):
     assert client.post('/chat', json={'message': 'x'}).status_code == 422
+    assert client.post('/chat', json={'session_id': '', 'message': 'x'}).status_code == 422
+    assert client.post('/chat', json={'session_id': 's'}).status_code == 422
+    assert client.post('/chat', json={'session_id': 's', 'message': ''}).status_code == 422
     assert client.post('/chat', json={'session_id': ' ', 'message': 'x'}).status_code == 422
     assert client.post('/chat', json={'session_id': 's', 'message': ' '}).status_code == 422
     assert client.post('/chat', json={'session_id': 's', 'message': 'x' * 4001}).status_code == 422
     assert client.post('/chat', content='{bad json', headers={'content-type': 'application/json'}).status_code == 422
+
+
+def test_history_is_oldest_first_and_system_prompt_is_not_exposed(client):
+    client.post('/chat', json={'session_id': 'ordered', 'message': 'first', 'system_prompt': 'private system text'})
+    client.post('/chat', json={'session_id': 'ordered', 'message': 'second'})
+    history = client.get('/sessions/ordered/messages').json()['messages']
+    assert [item['content'] for item in history] == ['first', 'reply from test-one', 'second', 'reply from test-one']
+    assert all('private system text' not in item['content'] for item in history)
 

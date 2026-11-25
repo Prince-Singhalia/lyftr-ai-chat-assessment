@@ -35,7 +35,7 @@ def test_diagnostic_checks_each_key_independently(client):
             raise RuntimeError("invalid api key")
         return {"choices": [{"message": {"content": "Gemini connection successful."}}]}
     client.app.state.gateway._diagnostic_completion = probe
-    result = client.app.state.gateway.diagnose_keys()
+    result = client.app.state.gateway.diagnose_keys(model="gemini/gemini-3.8-flash")
     assert [call[1] for call in calls] == ["test-one", "test-two"]
     assert all(call[0] == "gemini/gemini-3.8-flash" for call in calls)
     assert calls[0][2] == "Reply with exactly: Gemini connection successful."

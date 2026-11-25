@@ -112,8 +112,9 @@ class LLMGateway:
             kwargs["api_base"] = self.settings.llm_api_base
         return litellm.completion(**kwargs)
 
-    def diagnose_keys(self, model: str = "gemini/gemini-3.8-flash") -> list[dict[str, Any]]:
+    def diagnose_keys(self, model: str | None = None) -> list[dict[str, Any]]:
         """Run an uncached, independent live Gemini probe for each configured key."""
+        model = model or self.settings.llm_model
         prompt = "Reply with exactly: Gemini connection successful."
         results = []
         for index, api_key in enumerate(self.keys, start=1):
