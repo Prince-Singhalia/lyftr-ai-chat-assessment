@@ -5,6 +5,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     llm_api_keys: str = ""
     llm_model: str = "gpt-4o-mini"
+    groq_api_key: str = ""
+    fallback_llm_enabled: bool = False
+    fallback_llm_model: str = "groq/openai/gpt-oss-20b"
     llm_api_base: str | None = None
     database_url: str = "sqlite:////data/app.db"
     allowed_origins: str = "http://localhost:3000"
@@ -18,6 +21,10 @@ class Settings(BaseSettings):
     @property
     def api_keys(self) -> list[str]:
         return [key.strip() for key in self.llm_api_keys.split(",") if key.strip()]
+
+    @property
+    def groq_key(self) -> str | None:
+        return self.groq_api_key.strip() or None
 
     @property
     def origins(self) -> list[str]:

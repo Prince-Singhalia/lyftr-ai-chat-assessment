@@ -13,6 +13,12 @@ class ProvidersUnavailable(Exception):
     pass
 
 
+class SimulatedProviderError(Exception):
+    def __init__(self, status_code: int) -> None:
+        super().__init__("simulated provider failure")
+        self.status_code = status_code
+
+
 @dataclass
 class GatewayResult:
     reply: str
@@ -51,37 +57,57 @@ class LLMGateway:
         if not simulated:
             cached = self.cache.get(model, messages)
             if cached:
-                return GatewayResult(cached.reply, "LLM_CACHE", model, cached.input_tokens, cached.output_tokens, None, 0)
+                return GatewayResult(cached.reply, "LLM_CACHE", cached.model or model, cached.input_tokens, cached.output_tokens, None, 0)
         if not self.keys:
             raise ProvidersUnavailable()
         failures = 0
+        retryable_failures = True
         for index, api_key in enumerate(self.keys, start=1):
             key_id = f"key_{index}"
             try:
                 if "*" in simulated or key_id in simulated:
-                    raise RuntimeError("simulated provider failure")
-                response = self._call_litellm(messages, api_key)
-                reply = self._content(response)
-                usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
-                input_tokens = usage_value(usage, "prompt_tokens", "input_tokens") or estimate_tokens(" ".join(m["content"] for m in messages))
-                output_tokens = usage_value(usage, "completion_tokens", "output_tokens") or estimate_tokens(reply)
-                result = GatewayResult(reply, "LIVE_INFERENCE", model, input_tokens, output_tokens, key_id, failures)
-                self.cache.put(model, messages, CachedResult(reply, input_tokens, output_tokens))
+                    raise SimulatedProviderError(simulated.get(key_id, simulated.get("*", 503)))
+                result = self._complete_for_provider(messages, api_key, model, key_id, failures)
+                self.cache.put(model, messages, CachedResult(result.reply, result.input_tokens, result.output_tokens, result.model))
                 return result
             except Exception as error:
                 logger.warning("LLM provider attempt failed key_id=%s exception=%s status=%s category=%s error=%s",
                     key_id, type(error).__name__, _http_status(error), _error_category(error),
                     _safe_error_message(error, self.keys))
                 failures += 1
+                retryable_failures = retryable_failures and _is_retryable(error)
+        if not retryable_failures:
+            raise ProvidersUnavailable()
+        if len(self.keys) < 2 or not self.settings.fallback_llm_enabled or not self.settings.groq_key:
+            raise ProvidersUnavailable()
+        try:
+            if "*" in simulated or "groq" in simulated or "fallback" in simulated:
+                status = simulated.get("groq", simulated.get("fallback", simulated.get("*", 503)))
+                raise SimulatedProviderError(status)
+            groq_result = self._complete_for_provider(messages, self.settings.groq_key, self.settings.fallback_llm_model, "groq", failures)
+            self.cache.put(model, messages, CachedResult(groq_result.reply, groq_result.input_tokens, groq_result.output_tokens, groq_result.model))
+            return groq_result
+        except Exception as error:
+            logger.warning("LLM provider attempt failed key_id=groq exception=%s status=%s category=%s error=%s",
+                type(error).__name__, _http_status(error), _error_category(error),
+                _safe_error_message(error, self.keys + ([self.settings.groq_key] if self.settings.groq_key else [])))
         raise ProvidersUnavailable()
 
-    def _call_litellm(self, messages: list[dict[str, str]], api_key: str) -> Any:
+    def _complete_for_provider(self, messages: list[dict[str, str]], api_key: str, model: str, key_id: str, failures: int) -> GatewayResult:
+        response = self._call_litellm(messages, api_key) if model == self.settings.llm_model else self._call_litellm(messages, api_key, model)
+        reply = self._content(response)
+        usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
+        input_tokens = usage_value(usage, "prompt_tokens", "input_tokens") or estimate_tokens(" ".join(m["content"] for m in messages))
+        output_tokens = usage_value(usage, "completion_tokens", "output_tokens") or estimate_tokens(reply)
+        return GatewayResult(reply, "LIVE_INFERENCE", model, input_tokens, output_tokens, key_id, failures)
+
+    def _call_litellm(self, messages: list[dict[str, str]], api_key: str, model: str | None = None) -> Any:
         import litellm
         from litellm import Cache
         _quiet_provider_transport_logs()
         if self.settings.litellm_cache and getattr(litellm, "cache", None) is None:
             litellm.cache = Cache()
-        kwargs: dict[str, Any] = {"model": self.settings.llm_model, "messages": messages, "api_key": api_key, "timeout": 30}
+        kwargs: dict[str, Any] = {"model": model or self.settings.llm_model, "messages": messages, "api_key": api_key, "timeout": 30}
         if self.settings.llm_api_base:
             kwargs["api_base"] = self.settings.llm_api_base
         return litellm.completion(**kwargs)
@@ -151,6 +177,16 @@ def _error_category(error: Exception) -> str:
     if "connection" in name or "network" in message or "connecterror" in name:
         return "network"
     return "provider_error"
+
+
+def _is_retryable(error: Exception) -> bool:
+    status = _http_status(error)
+    if status in {408, 429, 500, 502, 503, 504}:
+        return True
+    if status is not None:
+        return False
+    category = _error_category(error)
+    return category in {"timeout", "network"}
 
 
 def _safe_error_message(error: Exception, secrets: list[str]) -> str:

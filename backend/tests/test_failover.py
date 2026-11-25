@@ -10,5 +10,14 @@ def test_failover_and_all_failures(client):
 
 def test_multiple_failures(client):
     result = client.post('/chat', headers={'X-Simulate-Failure': 'key_1=429,key_2=500'}, json={'session_id': 's', 'message': 'try'})
+    assert result.status_code == 200
+    assert result.json()['metadata']['model'] == 'groq/openai/gpt-oss-20b'
+    assert result.json()['metadata']['fallback_attempts'] == 2
+
+
+def test_groq_failure_returns_503_and_does_not_persist(client):
+    result = client.post('/chat', headers={'X-Simulate-Failure': 'key_1=429,key_2=500,groq=503'}, json={'session_id': 'failed-groq', 'message': 'try'})
     assert result.status_code == 503
+    assert result.json() == {'detail': 'all providers unavailable'}
+    assert client.get('/sessions/failed-groq/messages').status_code == 404
 

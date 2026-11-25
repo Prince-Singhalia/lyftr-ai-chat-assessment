@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 
 class CachedResult:
-    def __init__(self, reply: str, input_tokens: int, output_tokens: int) -> None:
-        self.reply, self.input_tokens, self.output_tokens = reply, input_tokens, output_tokens
+    def __init__(self, reply: str, input_tokens: int, output_tokens: int, model: str | None = None) -> None:
+        self.reply, self.input_tokens, self.output_tokens, self.model = reply, input_tokens, output_tokens, model
 
 
 class CacheService:

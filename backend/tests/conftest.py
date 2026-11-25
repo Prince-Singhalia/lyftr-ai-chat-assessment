@@ -8,7 +8,7 @@ import tempfile
 
 DB_PATH = Path(tempfile.gettempdir()) / f"resilient-ai-chat-{os.getpid()}.db"
 sys.path.insert(0, str(Path(__file__).parents[1]))
-os.environ.update({"LLM_API_KEYS": "test-one,test-two", "LLM_MODEL": "test-model", "DATABASE_URL": f"sqlite:///{DB_PATH}", "ENABLE_FAILURE_SIMULATION": "true", "LITELLM_CACHE": "true"})
+os.environ.update({"LLM_API_KEYS": "test-one,test-two", "LLM_MODEL": "test-model", "GROQ_API_KEY": "test-groq", "FALLBACK_LLM_ENABLED": "true", "FALLBACK_LLM_MODEL": "groq/openai/gpt-oss-20b", "DATABASE_URL": f"sqlite:///{DB_PATH}", "ENABLE_FAILURE_SIMULATION": "true", "LITELLM_CACHE": "true"})
 
 from app.config import get_settings
 from app.main import create_app
@@ -32,7 +32,7 @@ def clean_db(tmp_path):
 def client(monkeypatch):
     app = create_app()
     calls = []
-    def fake_call(messages, api_key):
+    def fake_call(messages, api_key, model=None):
         calls.append((messages, api_key))
         return {"choices": [{"message": {"content": f"reply from {api_key}"}}], "usage": {"prompt_tokens": len(messages) + 10, "completion_tokens": 3}}
     app.state.gateway._call_litellm = fake_call
