@@ -2,6 +2,23 @@
 
 A containerized AI chat application featuring multi-provider LLM fallback, SQLite or PostgreSQL conversation persistence, cross-session response caching, and token usage tracking.
 
+## Live Demo
+
+- **Frontend / Live Application:** [lyftr-ai-chat-assessment-frontend.vercel.app](https://lyftr-ai-chat-assessment-frontend.vercel.app/)
+- **Backend:** [lyftr-ai-chat-assessment.onrender.com](https://lyftr-ai-chat-assessment.onrender.com)
+- **Backend Health Check:** [lyftr-ai-chat-assessment.onrender.com/health](https://lyftr-ai-chat-assessment.onrender.com/health)
+- **GitHub Repository:** [Prince-Singhalia/lyftr-ai-chat-assessment](https://github.com/Prince-Singhalia/lyftr-ai-chat-assessment)
+
+## Production Architecture
+
+- **Frontend:** React + Vite, deployed on Vercel.
+- **Backend:** FastAPI in Docker, deployed on Render Free.
+- **Database:** Neon PostgreSQL for persistent production conversation history; local development uses file-backed SQLite.
+- **LLM gateway:** LiteLLM, with Gemini API keys tried in order and Groq as the optional cross-provider fallback.
+- **Response cache:** Process-local; entries are not shared across instances and are cleared when the backend restarts.
+
+Render Free instances can sleep after inactivity, so the first request after a quiet period may take longer while the service wakes.
+
 ## Overview
 
 Resilient AI Chat provides a React interface backed by a FastAPI service. The backend owns conversation history, constructs each request from the current session, and sends it through an ordered LiteLLM gateway. It can use two independent Gemini credentials and, when configured, fall back to Groq GPT-OSS 20B. Local Docker development persists successful exchanges in a named SQLite volume; production can use PostgreSQL.
