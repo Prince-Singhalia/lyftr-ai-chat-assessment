@@ -1,10 +1,10 @@
 # Resilient AI Chat
 
-A containerized AI chat application featuring multi-provider LLM fallback, persistent conversations, cross-session response caching, and token usage tracking.
+A containerized AI chat application featuring multi-provider LLM fallback, SQLite or PostgreSQL conversation persistence, cross-session response caching, and token usage tracking.
 
 ## Overview
 
-Resilient AI Chat provides a React interface backed by a FastAPI service. The backend owns conversation history, constructs each request from the current session, and sends it through an ordered LiteLLM gateway. It can use two independent Gemini credentials and, when configured, fall back to Groq GPT-OSS 20B. SQLite stores successful exchanges in a persistent Docker volume.
+Resilient AI Chat provides a React interface backed by a FastAPI service. The backend owns conversation history, constructs each request from the current session, and sends it through an ordered LiteLLM gateway. It can use two independent Gemini credentials and, when configured, fall back to Groq GPT-OSS 20B. Local Docker development persists successful exchanges in a named SQLite volume; production can use PostgreSQL.
 
 The application is intended as a single-instance assessment and development project. It does not provide user accounts, authorization, or multi-tenant isolation.
 
@@ -15,7 +15,7 @@ The application is intended as a single-instance assessment and development proj
 - Retryable provider failure handling with sanitized server diagnostics.
 - Backend-owned multi-turn memory and isolated session identifiers.
 - Cross-session response reuse keyed by model identity and the complete model message list.
-- SQLite persistence of successful user/assistant exchanges.
+- SQLite or PostgreSQL persistence of successful user/assistant exchanges.
 - Per-request input and output token metadata, with a documented estimate if provider usage is absent.
 - Responsive React chat UI with safe Markdown and response metadata.
 - Docker Compose development workflow with a named SQLite volume.
@@ -32,13 +32,15 @@ flowchart LR
   Gemini2[Gemini key 2]
   Groq[Groq GPT-OSS 20B fallback]
   Cache[LiteLLM local cache + response cache]
-  SQLite[(SQLite app.db)]
-  Volume[(Docker named volume mounted at /data)]
+  Database[Configured database adapter]
+  SQLite[(SQLite locally, Docker volume)]
+  Neon[(Neon PostgreSQL in production)]
 
   Browser --> Frontend
   Frontend -->|POST /chat, history GET| Backend
-  Backend -->|load / commit exchanges| SQLite
-  SQLite --- Volume
+  Backend -->|load / commit exchanges| Database
+  Database --> SQLite
+  Database --> Neon
   Backend --> Gateway
   Gateway <--> Cache
   Gateway -->|1. key_1| Gemini1
@@ -46,7 +48,7 @@ flowchart LR
   Gateway -->|3. after retryable Gemini failures| Groq
 ```
 
-FastAPI validates the request, retrieves prior session messages from SQLite, and adds the current message and optional system prompt. The gateway first checks the deterministic response cache. On a miss, it tries Gemini keys in order, then optionally tries Groq if both Gemini attempts failed with retryable errors. A successful response and its metadata are committed with the user message in one SQLite transaction. Failed requests are not written to history or the response cache.
+FastAPI validates the request, retrieves prior session messages from the configured database, and adds the current message and optional system prompt. The gateway first checks the deterministic response cache. On a miss, it tries Gemini keys in order, then optionally tries Groq if both Gemini attempts failed with retryable errors. A successful response and its metadata are committed with the user message in one database transaction. Failed requests are not written to history or the response cache.
 
 See [docs/architecture.md](docs/architecture.md) for detailed request, fallback, and persistence diagrams.
 
@@ -61,7 +63,7 @@ Verified from the repository manifests and Dockerfiles:
 | Frontend tests | Vitest 5.1.2, Testing Library, jsdom 29.1.1 |
 | Backend | Python 3.12, FastAPI 0.115.6, Pydantic 2.12.5, pydantic-settings 2.14.1 |
 | LLM integration | LiteLLM 1.108.12 |
-| Persistence | Python `sqlite3`, SQLite database file |
+| Persistence | Python `sqlite3` for local SQLite and Psycopg 3 for PostgreSQL |
 | Containers | Docker multi-stage builds, Docker Compose |
 | Backend tests | pytest 8.3.4, HTTPX 0.28.1 |
 
@@ -71,7 +73,7 @@ The frontend uses `latest` version ranges for some development dependencies. The
 
 ```text
 backend/
-  app/                 FastAPI application, routes, schemas, SQLite and LLM services
+  app/                 FastAPI application, routes, schemas, SQLite/PostgreSQL and LLM services
   tests/               Deterministic backend contract and provider tests
   Dockerfile           Multi-stage Python image; honors hosting PORT
   requirements.txt     Pinned backend dependencies
@@ -120,6 +122,8 @@ Open the frontend at <http://localhost:3000>. Check backend health at <http://lo
 Backend, from PowerShell:
 
 ```powershell
+Copy-Item .env.example backend/.env
+# Edit backend/.env: configure provider keys and set DATABASE_URL=sqlite:///./data/app.db.
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r backend\requirements.txt
@@ -135,7 +139,7 @@ npm ci
 npm run dev
 ```
 
-The non-Docker SQLite location follows `DATABASE_URL`. If unset, the application default points to `/data/app.db`; set a local writable SQLite URL such as `sqlite:///./data/app.db` for development outside containers.
+The non-Docker default is the file-backed SQLite URL `sqlite:///./data/app.db`. It creates `backend/data/app.db` when run from the `backend` directory. Docker Compose defaults to `sqlite:////data/app.db` and stores it in the named `app_data` volume. PostgreSQL is selected only when `DATABASE_URL` uses a PostgreSQL URL; connection failures fail startup and never switch to memory or SQLite.
 
 ## Environment configuration
 
@@ -148,17 +152,17 @@ The application reads environment variables through Pydantic Settings. `.env.exa
 | `GROQ_API_KEY` | Optional | Groq credential. Used only when fallback is enabled and both Gemini calls fail retryably. |
 | `FALLBACK_LLM_ENABLED` | Optional; defaults to `false` | Enables third-level Groq fallback. |
 | `FALLBACK_LLM_MODEL` | Optional | Groq model identifier; default is `groq/openai/gpt-oss-20b`. |
-| `DATABASE_URL` | Optional; defaults to `sqlite:////data/app.db` | SQLite connection URL. In Docker, use the named volume path `/data/app.db`. |
+| `DATABASE_URL` | Optional; default depends on runtime | SQLite `sqlite:///./data/app.db` locally or PostgreSQL `postgresql://...` in production. PostgreSQL requires TLS; insecure `sslmode=disable`, `allow`, and `prefer` modes are rejected. |
 | `ALLOWED_ORIGINS` | Optional | Comma-separated browser origins allowed by CORS. Set the exact production frontend origin. |
 | `VITE_API_BASE_URL` | Optional in local Compose; required for separate production frontend hosting | Backend base URL baked into the Vite build. Do not use a local URL for a public build. |
 | `LITELLM_CACHE` | Optional; defaults to `true` | Enables the LiteLLM local cache and the application response cache. |
 | `ENABLE_FAILURE_SIMULATION` | Optional; defaults to `false` | Enables `X-Simulate-Failure` for demonstrations/tests. Keep disabled in production. |
 | `LLM_API_BASE` | Optional | Custom provider API base when required by the configured LiteLLM provider. |
-| `CACHE_DIR` | Optional | Cache directory setting; the current response cache is in process memory. |
+| `CACHE_DIR` | Optional | Declared for compatibility, but not currently used by the process-memory response cache. |
 | `ENVIRONMENT` | Optional | Deployment environment label. |
 | `LOG_LEVEL` | Optional | Backend logging level. |
 
-Health requires reachable SQLite, at least two Gemini keys, and cache initialization. Groq is optional and does not replace the two-key Gemini requirement.
+Health requires a reachable configured database (SQLite or PostgreSQL), at least two Gemini keys, and cache initialization. Groq is optional and does not replace the two-key Gemini requirement. Startup creates the schema with idempotent `CREATE TABLE/INDEX IF NOT EXISTS` statements and records schema version 1 in `schema_migrations`; it does not drop or recreate tables.
 
 ## API documentation
 
@@ -172,7 +176,7 @@ Healthy response (`200`):
 {"status":"ok","keys_configured":2,"cache_enabled":true}
 ```
 
-Returns `503` with `{"detail":"service unavailable"}` if SQLite, the two-key requirement, or cache initialization is unhealthy.
+Returns `503` with `{"detail":"service unavailable"}` if the configured database, two-key requirement, or cache initialization is unhealthy.
 
 ### `POST /chat`
 
@@ -198,9 +202,9 @@ The response cache is process-local, so it is lost on backend restart and is not
 
 ## Conversation persistence
 
-SQLite creates the `messages` table automatically. It stores an integer ID, session ID, role, content, optional assistant metadata as JSON, and an ISO-8601 timestamp. Each successful exchange inserts the user and assistant messages transactionally. Failed calls are not persisted.
+The configured database stores a `messages` table containing an integer ID, session ID, role, content, optional assistant metadata as JSON text, and an ISO-8601 timestamp. Each successful exchange inserts the user and assistant messages transactionally. Failed calls are not persisted. SQLite uses `INTEGER PRIMARY KEY AUTOINCREMENT`; PostgreSQL uses `BIGSERIAL`. Both use the same idempotent startup schema migration, and existing rows are left in place.
 
-Compose mounts the named volume `app_data` at `/data`, with `DATABASE_URL=sqlite:////data/app.db`. `docker compose down` preserves this named volume; `docker compose down -v` deletes it and must not be used for routine development. SQLite is appropriate for this single-instance project; it is not a shared database for horizontally scaled application replicas.
+Compose mounts the named volume `app_data` at `/data`, with `DATABASE_URL=sqlite:////data/app.db`. `docker compose down` preserves this named volume; `docker compose down -v` deletes it and must not be used for routine development. For Render Free, use Neon PostgreSQL: Render Free filesystems are ephemeral, so SQLite history would be lost on restarts, deploys, or spin-down. The application opens short-lived connections per operation and accepts Neon pooled PostgreSQL URLs.
 
 ## Provider fallback
 
@@ -237,7 +241,7 @@ docker compose config --quiet
 docker compose run --rm backend pytest -v
 ```
 
-Backend tests mock provider calls and do not require live API keys. The frontend suite uses Vitest and Testing Library. Live provider diagnostics are manual and should be reported separately from unit-test results.
+Backend tests mock provider calls and do not require live API keys. Two PostgreSQL integration tests are skipped unless `TEST_POSTGRES_DATABASE_URL` points to a dedicated disposable PostgreSQL test database; they write and remove test rows. The frontend suite uses Vitest and Testing Library. Live provider diagnostics are manual and should be reported separately from unit-test results.
 
 ## Docker operations
 
@@ -252,11 +256,72 @@ docker compose down
 
 `docker compose down` stops and removes containers/network but retains the named `app_data` volume. Avoid `docker compose down -v` unless permanently deleting local history is intentional. The Makefile also supplies `make up`, `make down`, `make test`, and `make frontend-build`; on Windows without GNU Make, use the Compose and npm commands above.
 
-## Deployment
+## Free-tier deployment: Render + Neon + Vercel
 
-No public deployment URL is currently verified. For Render, create a Docker Web Service using Dockerfile `backend/Dockerfile`, build context `backend`, health path `/health`, and a persistent disk mounted at `/data`. Set provider secrets in Render’s environment panel and set `DATABASE_URL=sqlite:////data/app.db`, `PORT` (Render supplies it), and the exact frontend origin in `ALLOWED_ORIGINS`.
+This deployment keeps application data in Neon PostgreSQL. Do not use SQLite on a Render Free web service: its local filesystem is ephemeral and is cleared on restart, redeploy, or spin-down. Render Free services also spin down after 15 minutes of inactivity and can take about a minute to wake. See [Render Free service limits](https://render.com/docs/free). Neon connection strings require TLS; copy the pooled URL from the Neon Console and keep its SSL parameters. See [Neon connection guidance](https://neon.tech/docs/get-started/connect-neon) and [pooling guidance](https://neon.tech/docs/connect/connection-pooling).
 
-For Vercel, import the repository with root directory `frontend`, build command `npm run build`, and output directory `dist`. Configure `VITE_API_BASE_URL` with the deployed backend HTTPS URL, then update backend CORS to the exact Vercel origin. Do not publish a deployment URL until external health and frontend-to-backend requests have been verified.
+### 1. Create Neon database
+
+Create a Neon project, database, and application role. In **Connect**, choose the database/role and leave connection pooling enabled for the Render web service. Copy the generated `DATABASE_URL`; its shape is:
+
+```text
+postgresql://<role>:<password>@<endpoint>-pooler.<region>.aws.neon.tech/<database>?sslmode=require&channel_binding=require
+```
+
+Use the connection string exactly as generated. URL-encode special characters in credentials if you assemble a URL yourself. The application accepts `postgresql://`, `postgres://`, and `postgresql+psycopg://`; when `sslmode` is omitted it adds `sslmode=require`. It rejects SSL downgrade modes (`disable`, `allow`, `prefer`) and never prints the URL. Startup creates tables idempotently; it does not drop existing rows.
+
+### 2. Deploy backend on Render Free
+
+Create a **Web Service** from the GitHub repository and choose the free instance. Set **Root Directory** to `backend`, **Runtime** to Docker, **Dockerfile Path** to `Dockerfile`, and **Health Check Path** to `/health`. The container uses Render's injected `PORT`. Do not attach SQLite or rely on local files for persistence.
+
+Set these runtime environment variables in Render's service settings:
+
+| Variable | Render value |
+| --- | --- |
+| `DATABASE_URL` | The Neon pooled PostgreSQL URL copied from Neon; format above. Required. |
+| `LLM_API_KEYS` | Two Gemini API keys, comma-separated, in primary/secondary order. Required. |
+| `LLM_MODEL` | `gemini/gemini-3.1-flash-lite` (or the intended supported Gemini model). Required. |
+| `GROQ_API_KEY` | Groq key. Required only if enabling Groq fallback. |
+| `FALLBACK_LLM_ENABLED` | `true` when Groq is configured; otherwise `false`. |
+| `FALLBACK_LLM_MODEL` | `groq/openai/gpt-oss-20b` (current fallback model). |
+| `ALLOWED_ORIGINS` | Exact Vercel production origin, for example `https://your-project.vercel.app`; comma-separate any additional fixed custom domains. |
+| `LLM_API_BASE` | Omit unless a provider requires a custom API base. |
+| `LITELLM_CACHE` | `true` (the current health check expects cache initialization). |
+| `ENABLE_FAILURE_SIMULATION` | `false` in production. |
+| `ENVIRONMENT` | `production`. |
+| `LOG_LEVEL` | `INFO` (or a supported Python logging level). |
+| `CACHE_DIR` | No value required; currently declared but unused by the response cache. |
+
+`PORT` is injected by Render and should not be set manually. Keep the Gemini and Groq values in Render's secret environment fields, never in Git or frontend variables. Health becomes `200` only after the configured database is reachable, two Gemini keys are present, and the cache is initialized. Verify `https://<render-service>.onrender.com/health` after deployment.
+
+### 3. Deploy frontend on Vercel Hobby
+
+Import the repository into Vercel. Set **Root Directory** to `frontend`, **Framework Preset** to Vite, **Build Command** to `npm run build`, and **Output Directory** to `dist`. Add one build environment variable:
+
+| Variable | Value |
+| --- | --- |
+| `VITE_API_BASE_URL` | The Render backend origin, for example `https://your-service.onrender.com`; no `/chat` suffix. |
+
+Set it for Production (and Preview only if the backend CORS list is configured to allow that preview origin). `VITE_` variables are included in the public frontend bundle, so never put secrets in Vercel frontend variables. After Vercel gives the site its final origin, set that exact HTTPS origin in Render's `ALLOWED_ORIGINS`, redeploy the backend, and test chat plus session history in a browser. CORS is not authentication; this application has no user login or rate limiting.
+
+### 4. Existing SQLite history
+
+Changing `DATABASE_URL` does not copy an existing SQLite file into Neon. To preserve local history, take a backup of the SQLite file/Compose volume, create an empty Neon database, set the Neon URL as `DATABASE_URL` in a trusted local shell, then from `backend` run:
+
+```powershell
+python -m app.migrate_sqlite ..\data\app.db
+```
+
+Use the actual path to your SQLite file (for Compose, first make a backup/export from the `app_data` volume). The command requires an empty PostgreSQL `messages` table, copies IDs, history, metadata, and timestamps transactionally, and leaves the SQLite source untouched. Keep the backup until history has been verified through `GET /sessions/{session_id}/messages`. Do not paste the database URL into shell history or commit it.
+
+### Free-tier limits and operational notes
+
+- Render Free may sleep after inactivity, wake slowly, or restart. Requests during cold start can be slow.
+- Render Free's filesystem is ephemeral; Neon is the durable store. Keep a separate database backup/export and check the current Neon plan's storage, compute, and retention limits.
+- The response cache is process-local, so cache entries disappear on backend restarts and are not shared across replicas. Conversation history and token metadata remain in PostgreSQL.
+- The app opens short-lived database connections. The Neon pooled endpoint is recommended for connection-heavy deployment environments.
+- Vercel Hobby is intended for personal, non-commercial use. Review current [Vercel Hobby terms and limits](https://vercel.com/docs/plans/hobby) before deployment for a business or paid service.
+- Free-tier quotas, policies, and service limits can change; confirm them in each provider's current dashboard and documentation before relying on this setup.
 
 ## Security
 
@@ -268,11 +333,11 @@ For Vercel, import the repository with root directory `frontend`, build command 
 - Assistant Markdown uses `react-markdown` and `remark-gfm` without `dangerouslySetInnerHTML`; raw HTML is not enabled.
 - Set `ENABLE_FAILURE_SIMULATION=false` in production.
 - The API has no authentication or rate limiting. Do not expose it to untrusted public traffic without adding appropriate access controls and abuse protections.
-- Use persistent storage for SQLite and keep this deployment to one backend instance unless storage and cache coordination are redesigned.
+- Use PostgreSQL for Render Free; its filesystem cannot persist SQLite. Keep this deployment to one backend instance unless cache coordination is redesigned.
 
 ## Limitations
 
-Provider quotas, rate limits, model availability, network conditions, and free-tier restrictions may interrupt inference. Gemini fallback keys may share provider-side capacity or quota limits. Groq is optional and only handles retryable Gemini failures. The response cache is process-local and is cleared by restarts. SQLite and the in-memory cache do not coordinate across replicas. If a provider omits token usage, the application estimates counts from whitespace-separated text rather than claiming exact tokenizer usage.
+Provider quotas, rate limits, model availability, network conditions, and free-tier restrictions may interrupt inference. Gemini fallback keys may share provider-side capacity or quota limits. Groq is optional and only handles retryable Gemini failures. The response cache is process-local and is cleared by restarts; PostgreSQL persists conversations and token metadata, not response-cache entries. The in-memory cache does not coordinate across replicas. If a provider omits token usage, the application estimates counts from whitespace-separated text rather than claiming exact tokenizer usage.
 
 ## Roadmap
 

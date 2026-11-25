@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     fallback_llm_enabled: bool = False
     fallback_llm_model: str = "groq/openai/gpt-oss-20b"
     llm_api_base: str | None = None
-    database_url: str = "sqlite:////data/app.db"
+    database_url: str = "sqlite:///./data/app.db"
     allowed_origins: str = "http://localhost:3000"
     enable_failure_simulation: bool = False
     litellm_cache: bool = True

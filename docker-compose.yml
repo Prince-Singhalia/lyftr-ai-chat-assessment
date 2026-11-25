@@ -5,6 +5,7 @@ services:
     ports: ["8000:8000"]
     environment:
       PORT: "8000"
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/app.db}
     env_file:
       - path: .env
         required: false

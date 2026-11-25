@@ -14,7 +14,7 @@ Healthy response (`200`):
 }
 ```
 
-Health is `503 {"detail":"service unavailable"}` if SQLite is unreachable, fewer than two Gemini keys are configured, or caching is disabled/uninitialized.
+Health is `503 {"detail":"service unavailable"}` if the configured database is unreachable, fewer than two Gemini keys are configured, or caching is disabled/uninitialized.
 
 ## `POST /chat`
 

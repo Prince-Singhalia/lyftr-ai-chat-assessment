@@ -8,14 +8,15 @@ flowchart LR
   Browser --> React[React + TypeScript + Vite]
   React -->|JSON REST| API[FastAPI routes]
   API --> Validation[Pydantic validation]
-  API --> History[SQLite session history]
+  API --> History[Configured database history]
   API --> Gateway[LLMGateway]
   Gateway --> AppCache[Deterministic process-local response cache]
   Gateway --> LiteCache[LiteLLM local cache]
   Gateway --> Gemini1[Gemini model / key_1]
   Gateway --> Gemini2[Gemini model / key_2]
   Gateway --> Groq[Groq GPT-OSS 20B]
-  History --> Volume[(app_data named volume at /data)]
+  History --> SQLite[(SQLite in named volume locally)]
+  History --> Neon[(Neon PostgreSQL in production)]
 ```
 
 ## Chat request lifecycle
@@ -24,7 +25,7 @@ flowchart LR
 sequenceDiagram
   participant UI as React frontend
   participant API as FastAPI
-  participant DB as SQLite
+  participant DB as Configured database
   participant Cache as Response cache
   participant LLM as LLMGateway / LiteLLM
   UI->>API: POST /chat(session_id, message, optional system_prompt)
@@ -71,9 +72,9 @@ The application response cache hashes JSON containing the configured primary mod
 
 LiteLLM's local cache is also initialized for completion calls when enabled. The application cache that assigns `LLM_CACHE` labels is an in-memory `CacheService`. Both caches are process-local; they are not durable or coordinated across replicas.
 
-## SQLite model
+## Persistence model
 
-SQLite creates this table on app initialization:
+The selected database creates this logical table on app initialization. SQLite uses `INTEGER PRIMARY KEY AUTOINCREMENT`; PostgreSQL uses `BIGSERIAL`. Both use text metadata and timestamps, retaining the existing response/history contract.
 
 ```sql
 CREATE TABLE messages (
@@ -86,7 +87,9 @@ CREATE TABLE messages (
 );
 ```
 
-An index orders messages by session and ID. Successful exchanges insert a user row and an assistant row with JSON metadata in a transaction. Failed inference is not stored. Docker Compose mounts the stable `app_data` named volume at `/data`, where `DATABASE_URL=sqlite:////data/app.db` points.
+An index orders messages by session and ID. A version row in `schema_migrations` records the idempotent initial schema setup. Successful exchanges insert a user row and an assistant row with JSON metadata in one transaction. Failed inference is not stored. SQLite is used locally and by Docker Compose, which mounts `app_data` at `/data` and uses `sqlite:////data/app.db`. Production uses PostgreSQL selected by `DATABASE_URL`; PostgreSQL connection failures fail startup and do not fall back to in-memory or SQLite storage. SSL downgrade modes are rejected.
+
+The response cache remains a process-local `CacheService`; it is not stored in either database. Successful exchanges keep actual model metadata and token usage in `messages.metadata`, so those survive PostgreSQL restarts independently of cache entries. `app.migrate_sqlite` can copy an existing file-backed SQLite history into an empty PostgreSQL `messages` table without modifying the source file.
 
 ## Errors and security boundaries
 
@@ -98,4 +101,4 @@ CORS is configured from `ALLOWED_ORIGINS`, but CORS does not authenticate API cl
 
 Locally, Compose runs the backend on port 8000 and the Nginx-served frontend on port 3000. The backend listens on `0.0.0.0` and uses the `PORT` environment variable, defaulting to 8000. The backend is a non-root user. The frontend gets its backend URL through `VITE_API_BASE_URL` at build time.
 
-For production, the documented topology is one Render Docker Web Service with a persistent disk at `/data`, plus a Vercel static frontend. Configure the Vercel URL as the backend's exact allowed CORS origin. No production deployment URL is currently verified. SQLite and in-memory caches make this a single-instance topology.
+For production, the documented topology is one Render Docker Web Service using Neon PostgreSQL, plus a Vercel static frontend. Configure the Vercel URL as the backend's exact allowed CORS origin. No production deployment URL is currently verified. The process-local cache is not shared across replicas.
