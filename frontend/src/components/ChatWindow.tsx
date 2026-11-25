@@ -1,0 +1,4 @@
+import type { Message } from '../types/chat';
+import { ChatMessage } from './ChatMessage';
+import { LoadingIndicator } from './LoadingIndicator';
+export function ChatWindow({ messages, loading }: { messages: Message[]; loading: boolean }) { return <main className="chat-card"><div className="chat-header"><div><div className="eyebrow">LIVE CONVERSATION</div><h1>Ask with confidence.</h1></div><div className="pulse">● online</div></div><div className="message-list">{messages.length === 0 && <div className="empty"><div className="empty-mark">✦</div><h2>What can I help you solve?</h2><p>Try a question, then ask a follow-up to see memory in action.</p><div className="prompts"><button>Explain a complex idea simply</button><button>Help me plan a project</button></div></div>}{messages.map((message, i) => <ChatMessage key={`${message.role}-${i}`} message={message} />)}{loading && <LoadingIndicator />}</div></main> }
